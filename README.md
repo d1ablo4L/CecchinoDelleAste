@@ -61,7 +61,7 @@ Open **Search Auctions** and set your filters:
 
 Back out so the screen sits on the **Search config** view. That's where the bot expects to start.
 
-<img width="1902" height="1062" alt="image-2" src="https://github.com/user-attachments/assets/981ec234-fb9e-4390-babd-125e2342136e" />
+<img width="1919" height="1079" alt="image" src="https://github.com/user-attachments/assets/7e1cfcca-0ef2-41e6-af02-410117bc2787" />
 
 ---
 
@@ -69,7 +69,7 @@ Back out so the screen sits on the **Search config** view. That's where the bot 
 
 Double-click **FH6-Sniper.exe**. A small overlay appears in the top-left of your screen.
 
-Click back into FH6, press **F8**, and leave it running.
+Click back into FH6, press **F8** or **Start**, and leave it running.
 
 To stop: **F8** again, **F9** for panic, or click **STOP** on the overlay.
 
