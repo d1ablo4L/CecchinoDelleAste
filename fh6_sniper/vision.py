@@ -1,4 +1,4 @@
-"""Screen identification: OpenCV template matching and HSV colour masks."""
+"""Screen identification: template matching e rilevamento universale SDR/HDR."""
 from __future__ import annotations
 from enum import Enum, auto
 from pathlib import Path
@@ -11,7 +11,6 @@ class Screen(Enum):
     SEARCH_CONFIG = auto()
     RESULTS_HAS_CARS = auto()
     RESULTS_EMPTY = auto()
-    RESULTS_LOADING = auto()
     AUCTION_OPTIONS = auto()
     PLAYER_OPTIONS = auto()
     BUY_OUT = auto()
@@ -26,7 +25,6 @@ TEMPLATE_SCREENS: dict[str, Screen] = {
     "search.png": Screen.SEARCH_CONFIG,
     "auction_details.png": Screen.RESULTS_HAS_CARS,
     "no_auctions.png": Screen.RESULTS_EMPTY,
-    "auction_loading.png": Screen.RESULTS_LOADING,
     "auction_options.png": Screen.AUCTION_OPTIONS,
     "player_options.png": Screen.PLAYER_OPTIONS,
     "buy_out.png": Screen.BUY_OUT,
@@ -40,24 +38,24 @@ TEMPLATE_SCREENS: dict[str, Screen] = {
 }
 
 
+# ── Utility HSV (mantenuta per compatibilità) ─────────────────────────────────
 def lime_mask(bgr: np.ndarray, lower, upper) -> np.ndarray:
     hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
     return cv2.inRange(hsv, np.array(lower, np.uint8), np.array(upper, np.uint8))
 
 
 def largest_lime_bbox(bgr, lower, upper):
-    """Bounding box of the largest banner-shaped lime region, or None."""
+    """Bounding box della più grande regione lime a forma di banner, o None."""
     mask = lime_mask(bgr, lower, upper)
     contours, _ = cv2.findContours(
         mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best = None
-    best_area = 0.0
+    best, best_area = None, 0.0
     for c in contours:
         area = cv2.contourArea(c)
         if area < 2000:
             continue
         x, y, w, h = cv2.boundingRect(c)
-        if h <= 0 or w / h < 4.0:        # not banner-shaped
+        if h <= 0 or w / h < 4.0:
             continue
         if area > best_area:
             best_area = area
@@ -65,6 +63,7 @@ def largest_lime_bbox(bgr, lower, upper):
     return best
 
 
+# ── Template matching ─────────────────────────────────────────────────────────
 def _gray(img: np.ndarray) -> np.ndarray:
     if img.ndim == 2:
         return img
@@ -72,7 +71,7 @@ def _gray(img: np.ndarray) -> np.ndarray:
 
 
 def match_template(scene: np.ndarray, template: np.ndarray) -> float:
-    """Best NCC score of template inside scene. 0.0 if template is too big."""
+    """Miglior punteggio NCC del template nella scena. 0.0 se il template è troppo grande."""
     s, t = _gray(scene), _gray(template)
     if t.shape[0] > s.shape[0] or t.shape[1] > s.shape[1]:
         return 0.0
@@ -94,12 +93,11 @@ def _small(tmpl: np.ndarray) -> np.ndarray:
 
 
 def load_templates(template_dir, moving_background: bool = True) -> dict:
-    """Load every detection template as grayscale. Raises if any is missing.
+    """Carica ogni template di rilevamento in scala di grigi.
+    Lancia FileNotFoundError se un template obbligatorio manca.
 
-    `moving_background` selects which buy_out body template set to load:
-    True (default) uses the BG-on variants, False uses the *_bgoff variants.
-    Skipping the other set saves a couple of full-res matches per buyout
-    poll.
+    Il matching avviene sempre su frame normalizzati a 1920×1080, quindi
+    i template a 1080p funzionano per qualsiasi risoluzione di gioco.
     """
     out = {}
     for name in TEMPLATE_SCREENS:
@@ -111,7 +109,7 @@ def load_templates(template_dir, moving_background: bool = True) -> dict:
         path = Path(template_dir) / name
         img = cv2.imread(str(path))
         if img is None:
-            raise FileNotFoundError(f"template missing: {path}")
+            raise FileNotFoundError(f"template mancante: {path}")
         gray = _gray(img)
         out[name] = gray
         _DOWNSCALED_TEMPLATES[id(gray)] = _downscale(gray)
@@ -119,17 +117,13 @@ def load_templates(template_dir, moving_background: bool = True) -> dict:
 
 
 def _has_bgoff_variant(name: str) -> bool:
-    """True if this template has a *_bgoff sibling registered."""
     if name.endswith("_bgoff.png"):
         return False
     sibling = name[:-len(".png")] + "_bgoff.png"
     return sibling in TEMPLATE_SCREENS
 
 
-# Distinctive results templates beat ah_landing (whose title also appears
-# on the results screens).
 _RESULTS_PRIORITY = ("auction_details.png", "no_auctions.png")
-
 _MATCH_SCALE = 0.5
 
 
@@ -138,28 +132,22 @@ def _downscale(img: np.ndarray) -> np.ndarray:
                       interpolation=cv2.INTER_AREA)
 
 
-# Where each template appears on a 1920x1080 frame, with padding.
 TEMPLATE_REGIONS = {
-    "search.png":             (472, 223, 1448, 471),
-    "auction_details.png":    (889,  64, 1920, 294),
-    "no_auctions.png":        (1113, 434, 1706, 690),
-    "auction_loading.png":    (870, 180, 1840, 870),
-    "auction_options.png":    (546, 276, 1374, 526),
-    "player_options.png":     (580, 230, 1340, 486),
+    "search.png":                (472, 223, 1448, 471),
+    "auction_details.png":       (889,  64, 1920, 294),
+    "no_auctions.png":           (1113, 434, 1706, 690),
+    "auction_options.png":       (546, 276, 1374, 526),
+    "player_options.png":        (580, 230, 1340, 486),
     "buy_out.png":               (520, 470, 1400, 620),
     "buy_out_bgoff.png":         (520, 470, 1400, 620),
     "buy_out_progress.png":      (520, 470, 1400, 620),
     "buy_out_progress_bgoff.png":(520, 470, 1400, 620),
-    "buyout_successful.png":  (539, 334, 1374, 612),
-    "buyout_failed.png":      (546, 378, 1374, 631),
-    "claim_car.png":          (538, 359, 1374, 615),
-    "ah_landing.png":         (16,   89,  387, 291),
+    "buyout_successful.png":     (539, 334, 1374, 612),
+    "buyout_failed.png":         (546, 378, 1374, 631),
+    "claim_car.png":             (538, 359, 1374, 615),
+    "ah_landing.png":            (16,   89,  387, 291),
 }
 
-
-# Templates that must be matched at full resolution. The buy_out body and
-# buy_out_progress body are short text-band crops; half-res blurs the text
-# enough that live frames drop below the 0.80 threshold (~0.78 vs ~0.86).
 _FULL_RES_TEMPLATES = {
     "buy_out.png", "buy_out_bgoff.png",
     "buy_out_progress.png", "buy_out_progress_bgoff.png",
@@ -167,10 +155,9 @@ _FULL_RES_TEMPLATES = {
 
 
 def screen_scores(scene_bgr, templates: dict, targets=None) -> dict:
-    """Match score per template, region-cropped. Most templates run at half
-    resolution; a few small text-band templates (see _FULL_RES_TEMPLATES)
-    run at full res. If `targets` is a set of Screen, only those templates
-    (plus the priority results templates) are scored."""
+    """Punteggio di matching per template, crop-regione.
+    Il matching in scala di grigi è già indipendente da SDR/HDR e risoluzione.
+    """
     if targets is not None:
         wanted = set(_RESULTS_PRIORITY)
         wanted |= {n for n, scr in TEMPLATE_SCREENS.items() if scr in targets}
@@ -194,7 +181,6 @@ def screen_scores(scene_bgr, templates: dict, targets=None) -> dict:
 
 def identify_screen(scene_bgr, templates: dict, threshold: float,
                     targets=None) -> Screen:
-    """Best-matching Screen above `threshold`, or UNKNOWN."""
     scores = screen_scores(scene_bgr, templates, targets=targets)
     for name in _RESULTS_PRIORITY:
         if scores.get(name, 0.0) >= threshold:
@@ -206,47 +192,45 @@ def identify_screen(scene_bgr, templates: dict, threshold: float,
     return best_screen
 
 
-# Search-config Confirm button band at 1920x1080.
+# ── Rilevamento pulsante Conferma ─────────────────────────────────────────────
 CONFIRM_ROW = (548, 714, 1372, 772)
 
+# Soglie basate sul canale V (luminosità) invece di un hue specifico.
+# Il pulsante evidenziato — lime in SDR, o qualsiasi colore brillante in HDR —
+# ha sempre luminosità V significativamente maggiore dello sfondo UI scuro.
+# Funziona per SDR, HDR, qualsiasi temperatura colore e gamma display.
+_CONFIRM_V_THRESH  = 130   # soglia canale V: pixel "acceso"
+_CONFIRM_V_COUNT   = 500   # numero minimo di pixel accesi per considerarlo evidenziato
 
-def is_confirm_highlighted(scene_bgr, lower, upper, region=CONFIRM_ROW) -> bool:
-    """True if the Confirm button shows the lime highlight."""
+
+def is_confirm_highlighted(scene_bgr, region=CONFIRM_ROW) -> bool:
+    """True se il pulsante Conferma è evidenziato.
+
+    Usa il canale V (luminosità) dell'HSV: il pulsante evidenziato è sempre
+    molto più luminoso dello sfondo UI scuro, indipendentemente dal color
+    space (SDR/HDR), dalla risoluzione o dalla calibrazione del display.
+    Non richiede template aggiuntivi.
+    """
     x1, y1, x2, y2 = region
     crop = scene_bgr[y1:y2, x1:x2]
     if crop.size == 0:
         return False
-    mask = lime_mask(crop, lower, upper)
-    return int(cv2.countNonZero(mask)) > 300
+    v = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[:, :, 2]
+    _, bright = cv2.threshold(v, _CONFIRM_V_THRESH, 255, cv2.THRESH_BINARY)
+    return int(cv2.countNonZero(bright)) > _CONFIRM_V_COUNT
 
 
-# Yellow SOLD stamp HSV range and per-slot regions. Cards stack at a 202px
-# pitch; regions stop above the live time-left pill and the price-row icons.
-SOLD_HSV_LOWER = (20, 120, 120)
-SOLD_HSV_UPPER = (34, 255, 255)
+# ── Rilevamento timbro SOLD ───────────────────────────────────────────────────
 SOLD_STAMP_REGION = (90, 185, 300, 295)
 
-# A populated card has a digitally-rendered white UI body that produces
-# pixels with high V and very low S. The FH6 moving-background scene shown
-# through an empty slot is bright but never that pure - everything is tinted,
-# textured, or has a colour cast. Counting these "pure-white" pixels gives a
-# clean separator that works whether moving_background is on or off.
-SLOT_POPULATED_WHITE_V_MIN = 230
-SLOT_POPULATED_WHITE_S_MAX = 25
-SLOT_POPULATED_WHITE_MIN = 30      # min pixels matching the above per slot
-
-
-def is_card_sold(scene_bgr, region=SOLD_STAMP_REGION) -> bool:
-    """True if the top result card shows the yellow SOLD stamp."""
-    x1, y1, x2, y2 = region
-    crop = scene_bgr[y1:y2, x1:x2]
-    if crop.size == 0:
-        return False
-    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, np.array(SOLD_HSV_LOWER, np.uint8),
-                       np.array(SOLD_HSV_UPPER, np.uint8))
-    return int(cv2.countNonZero(mask)) > 800
-
+# Approccio universale SDR/HDR: cerca pixel con alta saturazione E alta
+# luminosità (colore vivace). In SDR il timbro è giallo acceso (H≈28,
+# S≈255, V≈220). In HDR il tone-mapping può spostare H e abbassare S/V,
+# ma il timbro rimane comunque un colore saturo e luminoso rispetto allo
+# sfondo grigio-scuro della card. Non dipende dall'hue specifico.
+_SOLD_S_THRESH     = 55    # saturazione minima: esclude grigi e sfondo scuro
+_SOLD_V_THRESH     = 80    # luminosità minima: esclude aree in ombra
+_SOLD_PIXEL_COUNT  = 800   # pixel colorati+luminosi necessari per "SOLD"
 
 SOLD_STAMP_REGIONS = (
     SOLD_STAMP_REGION,
@@ -256,32 +240,43 @@ SOLD_STAMP_REGIONS = (
 )
 
 
-def slot_states(scene_bgr) -> tuple:
-    """Per-slot (sold, populated) flags for the four result slots."""
-    hsv = cv2.cvtColor(scene_bgr, cv2.COLOR_BGR2HSV)
-    sold_mask = cv2.inRange(hsv,
-                            np.array(SOLD_HSV_LOWER, np.uint8),
-                            np.array(SOLD_HSV_UPPER, np.uint8))
-    sat = hsv[:, :, 1]
-    val = hsv[:, :, 2]
-    out = []
-    for (x1, y1, x2, y2) in SOLD_STAMP_REGIONS:
-        sold = int(cv2.countNonZero(sold_mask[y1:y2, x1:x2])) > 800
-        white = ((val[y1:y2, x1:x2] >= SLOT_POPULATED_WHITE_V_MIN)
-                 & (sat[y1:y2, x1:x2] <= SLOT_POPULATED_WHITE_S_MAX))
-        populated = int(white.sum()) > SLOT_POPULATED_WHITE_MIN
-        out.append((sold, populated))
-    return tuple(out)
+def is_card_sold(scene_bgr, region=SOLD_STAMP_REGION) -> bool:
+    """True se la prima card mostra il timbro SOLD.
+
+    Rileva qualsiasi colore vivace (S alta + V alta) nella regione del timbro.
+    Funziona in SDR (giallo acceso) e HDR (giallo/arancio tone-mappato),
+    indipendentemente da risoluzione e impostazioni display.
+    """
+    x1, y1, x2, y2 = region
+    crop = scene_bgr[y1:y2, x1:x2]
+    if crop.size == 0:
+        return False
+    hsv  = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(
+        hsv,
+        np.array([0, _SOLD_S_THRESH, _SOLD_V_THRESH], np.uint8),
+        np.array([179, 255, 255], np.uint8))
+    return int(cv2.countNonZero(mask)) > _SOLD_PIXEL_COUNT
 
 
 def sold_slots(scene_bgr) -> tuple:
-    """Per-slot SOLD flags for the four result slots."""
-    return tuple(sold for sold, _populated in slot_states(scene_bgr))
+    """Flag SOLD per ognuno dei quattro slot risultato.
+    Universale SDR/HDR: vedi is_card_sold.
+    """
+    hsv  = cv2.cvtColor(scene_bgr, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(
+        hsv,
+        np.array([0, _SOLD_S_THRESH, _SOLD_V_THRESH], np.uint8),
+        np.array([179, 255, 255], np.uint8))
+    return tuple(int(cv2.countNonZero(mask[y1:y2, x1:x2])) > _SOLD_PIXEL_COUNT
+                 for (x1, y1, x2, y2) in SOLD_STAMP_REGIONS)
 
 
 def first_buyable_slot(scene_bgr) -> int:
-    """1-indexed first slot that is populated and not sold, or 0 if none."""
-    for i, (sold, populated) in enumerate(slot_states(scene_bgr), start=1):
-        if populated and not sold:
+    """Primo slot non-SOLD (indice 1), o 0 se tutti e quattro sono venduti.
+    Universale SDR/HDR.
+    """
+    for i, sold in enumerate(sold_slots(scene_bgr), start=1):
+        if not sold:
             return i
     return 0

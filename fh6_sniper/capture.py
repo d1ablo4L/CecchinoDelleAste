@@ -1,5 +1,6 @@
-"""Screen capture and window-focus helpers."""
+"""Screen capture and window-focus helpers — universale per qualsiasi risoluzione."""
 from __future__ import annotations
+import ctypes
 import logging
 import time
 import numpy as np
@@ -9,15 +10,62 @@ import win32gui
 
 _log = logging.getLogger("fh6.capture")
 
+# ── DPI awareness ────────────────────────────────────────────────────────────
+# Obbligatorio per ottenere pixel fisici su monitor 2K/4K con Windows scaling.
+# SetProcessDpiAwareness(2) = PROCESS_PER_MONITOR_DPI_AWARE (Win 8.1+).
+# Fallback a SetProcessDPIAware() per Windows 7/8.
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+# Risoluzione canonica interna. Tutti i frame vengono normalizzati a questa
+# dimensione indipendentemente dalla risoluzione nativa del gioco.
+# Template, regioni e soglie sono calibrati su questo valore.
 CANON = (1920, 1080)
+_TARGET_RATIO = 16.0 / 9.0   # rapporto d'aspetto di riferimento
 
 _camera = None
 _camera_unavailable = False
 _hwnd_cache: dict = {}
 
 
+# ── Crop aspect ratio ─────────────────────────────────────────────────────────
+def _crop_to_16_9(frame: np.ndarray) -> np.ndarray:
+    """Ritaglia il frame al rapporto 16:9 prendendo il centro dell'immagine.
+
+    Gestisce qualsiasi aspect ratio in ingresso:
+    - Più largo di 16:9 (21:9, 32:9, ultrawide…): ritaglia i lati
+    - Più stretto di 16:9 (4:3, 16:10, 5:4…): ritaglia in altezza
+    - Già 16:9 (con tolleranza 2 %): restituisce una view senza allocazioni
+
+    Il crop dal centro garantisce che la UI del gioco (sempre centrata) sia
+    inclusa, indipendentemente dall'aspect ratio del monitor.
+    """
+    h, w = frame.shape[:2]
+    if h == 0:
+        return frame
+    actual_ratio = w / h
+    if abs(actual_ratio - _TARGET_RATIO) < 0.02:   # già ≈16:9
+        return frame
+    if actual_ratio > _TARGET_RATIO:
+        # Più largo: ritaglia la larghezza, mantieni tutta l'altezza
+        new_w = int(round(h * _TARGET_RATIO))
+        x0 = (w - new_w) // 2
+        return frame[:, x0:x0 + new_w]
+    else:
+        # Più alto: ritaglia l'altezza, mantieni tutta la larghezza
+        new_h = int(round(w / _TARGET_RATIO))
+        y0 = (h - new_h) // 2
+        return frame[y0:y0 + new_h, :]
+
+
+# ── Window helpers ────────────────────────────────────────────────────────────
 def find_window(title: str) -> int:
-    """Return the hwnd of a visible window with this title, or 0."""
+    """Restituisce l'hwnd di una finestra visibile con quel titolo, o 0."""
     cached = _hwnd_cache.get(title)
     if cached and win32gui.IsWindow(cached):
         return cached
@@ -36,7 +84,11 @@ def find_window(title: str) -> int:
 
 
 def client_rect(hwnd: int):
-    """Return (left, top, width, height) of a window's client area."""
+    """Restituisce (left, top, width, height) dell'area client in pixel fisici.
+
+    Con DPI awareness attiva i valori sono pixel fisici, quindi corretti
+    su qualsiasi risoluzione e impostazione di scaling di Windows.
+    """
     cl, ct, cr, cb = win32gui.GetClientRect(hwnd)
     width, height = cr - cl, cb - ct
     sx, sy = win32gui.ClientToScreen(hwnd, (cl, ct))
@@ -81,145 +133,21 @@ def _grab_mss(region):
 
 _capture_failing = False
 
-# Treat any pixel below this 0-255 grayscale value as solid-black background.
-_BLACK_THRESHOLD = 6
-# Refuse to strip bars if doing so removes more than this fraction of either
-# axis. Guards against dark scenes / load screens that look like a black bar.
-_MAX_STRIP_FRACTION = 0.5
-# Aspect-ratio tolerance: within this fraction of 16:9 counts as 16:9.
-_ASPECT_EPS = 0.01
-
-
-def _symmetric_strip(near: int, far: int) -> int:
-    """Return the per-side strip if `near` and `far` look like matching bars,
-    else 0. Natural interior dark is asymmetric; real letterbox / pillarbox
-    is centered, so the two edges should agree within tolerance."""
-    if near == 0 and far == 0:
-        return 0
-    tol = max(5, int(max(near, far) * 0.10))
-    if abs(near - far) > tol:
-        return 0
-    return min(near, far)
-
-
-def _detect_strip_box(frame: np.ndarray):
-    """Return (top, bottom, left, right) inner-rect coords for a symmetric
-    black-bar strip, or None if no reliable bar is present."""
-    if frame.size == 0:
-        return None
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    h, w = gray.shape
-    row_lit = gray.max(axis=1) >= _BLACK_THRESHOLD
-    col_lit = gray.max(axis=0) >= _BLACK_THRESHOLD
-    if not row_lit.any() or not col_lit.any():
-        return None
-    top_dark = int(np.argmax(row_lit))
-    bottom_dark = int(np.argmax(row_lit[::-1]))
-    left_dark = int(np.argmax(col_lit))
-    right_dark = int(np.argmax(col_lit[::-1]))
-    vert = _symmetric_strip(top_dark, bottom_dark)
-    horiz = _symmetric_strip(left_dark, right_dark)
-    if vert == 0 and horiz == 0:
-        return None
-    new_h = h - 2 * vert
-    new_w = w - 2 * horiz
-    if new_h < h * _MAX_STRIP_FRACTION or new_w < w * _MAX_STRIP_FRACTION:
-        return None
-    return (vert, h - vert, horiz, w - horiz)
-
-
-def _strip_black_bars(frame: np.ndarray) -> np.ndarray:
-    """Apply the symmetric-bar strip directly. Thin wrapper around
-    `_detect_strip_box` for tests + ad-hoc one-off use."""
-    box = _detect_strip_box(frame)
-    if box is None:
-        return frame
-    t, b, l, r = box
-    return frame[t:b, l:r]
-
-
-def _detect_aspect_box(h: int, w: int):
-    """Return (top, bottom, left, right) for the largest centered 16:9
-    sub-rect, or None if `(h, w)` already match 16:9 within tolerance."""
-    if h == 0 or w == 0:
-        return None
-    target = CANON[0] / CANON[1]                     # 16/9
-    current = w / h
-    if abs(current - target) <= _ASPECT_EPS:
-        return None
-    if current > target:                             # frame is too wide
-        crop_w = int(round(h * target))
-        x = (w - crop_w) // 2
-        return (0, h, x, x + crop_w)
-    crop_h = int(round(w / target))                  # frame is too tall
-    y = (h - crop_h) // 2
-    return (y, y + crop_h, 0, w)
-
-
-# Plan: cached crop boxes + resize flag, keyed on the input frame shape.
-# Computed once from a real game frame, then reused on every poll - turns
-# normalisation into a pair of array slices plus an optional resize.
-_plan: dict | None = None
-
-
-def _build_plan(frame: np.ndarray) -> dict:
-    strip = _detect_strip_box(frame)
-    if strip:
-        t, b, l, r = strip
-        h, w = b - t, r - l
-    else:
-        h, w = frame.shape[:2]
-    aspect = _detect_aspect_box(h, w)
-    if aspect:
-        t2, b2, l2, r2 = aspect
-        h, w = b2 - t2, r2 - l2
-    return {
-        "input_shape": frame.shape,
-        "strip": strip,
-        "aspect": aspect,
-        "needs_resize": (w, h) != CANON,
-    }
-
-
-def reset_normalize_plan() -> None:
-    """Drop the cached plan so the next normalize_frame call re-detects.
-    Call this whenever the capture region or game settings change (e.g.
-    when the user hits Start)."""
-    global _plan
-    _plan = None
-
-
-def normalize_frame(frame: np.ndarray) -> np.ndarray:
-    """Apply the cached strip / 16:9 crop / 1080p resize plan; build the
-    plan from this frame if none is cached yet or the input shape changed."""
-    global _plan
-    if frame is None or frame.size == 0:
-        return np.zeros((CANON[1], CANON[0], 3), dtype=np.uint8)
-    if _plan is None or _plan["input_shape"] != frame.shape:
-        # Skip caching a plan derived from a totally blank frame (capture
-        # failure fallback). Without this, a transient blank stays cached.
-        if frame.max() < _BLACK_THRESHOLD:
-            return cv2.resize(frame, CANON, interpolation=cv2.INTER_AREA) \
-                if (frame.shape[1], frame.shape[0]) != CANON else frame
-        _plan = _build_plan(frame)
-        _log.info("normalize plan: input=%s strip=%s aspect=%s resize=%s",
-                  frame.shape, _plan["strip"], _plan["aspect"],
-                  _plan["needs_resize"])
-    plan = _plan
-    if plan["strip"]:
-        t, b, l, r = plan["strip"]
-        frame = frame[t:b, l:r]
-    if plan["aspect"]:
-        t, b, l, r = plan["aspect"]
-        frame = frame[t:b, l:r]
-    if plan["needs_resize"]:
-        frame = cv2.resize(frame, CANON, interpolation=cv2.INTER_AREA)
-    return frame
-
 
 def grab_screen(window_title: str | None = None) -> np.ndarray:
-    """Capture a BGR 1920x1080 frame. Falls back to mss on DXGI failure;
-    returns a blank frame if both backends fail."""
+    """Cattura e restituisce un frame BGR 1920×1080 normalizzato.
+
+    Pipeline universale:
+      1. Cattura la regione fisica della finestra (DPI-aware → corretta a
+         qualsiasi risoluzione: 720p, 1080p, 2K, 4K).
+      2. Ritaglia al rapporto 16:9 dal centro (_crop_to_16_9) → gestisce
+         ultrawide 21:9, 32:9, monitor 4:3, 16:10, ecc.
+      3. Ridimensiona a CANON 1920×1080 con INTER_AREA (qualità ottimale
+         per il downscale) → template e regioni sempre validi.
+
+    Il risultato è sempre 1920×1080 BGR indipendentemente da risoluzione
+    nativa, aspect ratio del monitor e backend di cattura (DXGI o mss).
+    """
     global _capture_failing
     region = None
     if window_title:
@@ -228,21 +156,32 @@ def grab_screen(window_title: str | None = None) -> np.ndarray:
             x, y, w, h = client_rect(hwnd)
             if w > 0 and h > 0:
                 region = (x, y, x + w, y + h)
+
     frame = _grab_dxgi(region)
     if frame is None:
         try:
             frame = _grab_mss(region)
         except Exception as e:
             if not _capture_failing:
-                _log.warning("capture failed: %s", e)
+                _log.warning("cattura fallita: %s", e)
                 _capture_failing = True
             frame = None
+
     if frame is None:
         return np.zeros((CANON[1], CANON[0], 3), dtype=np.uint8)
+
     if _capture_failing:
-        _log.info("capture recovered")
+        _log.info("cattura ripristinata")
         _capture_failing = False
-    return normalize_frame(frame)
+
+    # Step 2: porta a 16:9 prima di ridimensionare
+    frame = _crop_to_16_9(frame)
+
+    # Step 3: normalizza a CANON
+    if (frame.shape[1], frame.shape[0]) != CANON:
+        frame = cv2.resize(frame, CANON, interpolation=cv2.INTER_AREA)
+
+    return frame
 
 
 def foreground_title() -> str:
@@ -254,7 +193,7 @@ def is_game_focused(expected_title: str, title_getter=foreground_title) -> bool:
 
 
 def focus_window(title: str) -> bool:
-    """Bring the named window to the foreground. Returns True on success."""
+    """Porta la finestra indicata in primo piano. True se riuscito."""
     hwnd = find_window(title)
     if not hwnd:
         return False

@@ -1,4 +1,4 @@
-"""Purchase CSV logging and sound/toast notifications."""
+"""Log CSV degli acquisti e notifiche sonore/toast."""
 from __future__ import annotations
 import csv
 import datetime as dt
@@ -7,7 +7,7 @@ from pathlib import Path
 
 def log_purchase(log_path, outcome: str, loop_seconds: float,
                  total: int) -> None:
-    """Append one row to the purchase CSV. Writes a header if new."""
+    """Aggiunge una riga al CSV degli acquisti. Scrive l'intestazione se nuovo."""
     path = Path(log_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     is_new = not path.exists()
@@ -15,7 +15,7 @@ def log_purchase(log_path, outcome: str, loop_seconds: float,
         writer = csv.writer(f)
         if is_new:
             writer.writerow(
-                ["timestamp", "outcome", "loop_seconds", "total_bought"])
+                ["timestamp", "esito", "secondi_ciclo", "totale_acquistati"])
         writer.writerow([
             dt.datetime.now().isoformat(timespec="seconds"),
             outcome, f"{loop_seconds:.1f}", total,
@@ -23,7 +23,7 @@ def log_purchase(log_path, outcome: str, loop_seconds: float,
 
 
 def notify_success(car_count: int, sound: bool, toast: bool) -> None:
-    """Beep + Windows toast after a successful buy."""
+    """Beep + toast Windows dopo un acquisto riuscito."""
     if sound:
         try:
             import winsound
@@ -34,6 +34,6 @@ def notify_success(car_count: int, sound: bool, toast: bool) -> None:
         try:
             from win11toast import toast as show_toast
             show_toast("FH6 Sniper",
-                       f"Car bought ({car_count} this session)")
+                       f"Auto acquistata ({car_count} questa sessione)")
         except Exception:
             pass
