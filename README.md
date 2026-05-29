@@ -39,14 +39,14 @@ Monitora la Casa d'aste per l'auto impostata, la acquista immediatamente non app
 
 ---
 
-# Requisiti
+# Requisiti e settaggi
 
 - Windows 10 o 11
 - Forza Horizon 6 su PC
-- Risoluzione 1920 x 1080 – Schermo intero, frame rate sbloccato
+- Risoluzione 4k/2k/1080p/720p – NO HDR - Schermo intero, frame rate sbloccato - dimensione HUD 100%
 - Preset grafico Molto basso
-- Sfondo animato **ATTIVO**
-- Navigazione nei menu tramite tastiera (il bot usa i tasti, non il mouse)
+- Sfondo animato (Accesivibilità visive) **Disattivato**
+- HDR (OPZIONALE)(AUMENTA IMPUT LAG) - Sfondo animato **Attivato** - in config.json "moving_bg" **true**
 - Connessione Ethernet cablata fortemente consigliata
 
 <img width="1386" height="763" alt="image-4" src="https://github.com/user-attachments/assets/fd2bf173-259f-4458-938b-2267144ce3ab" />
