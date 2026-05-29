@@ -1,4 +1,22 @@
- [![Consider Supporting me by donating to my ko-fi (100% optional, please dont feel pressured to do so) ](https://img.shields.io/badge/Support_on-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/frostyisbored)
+# TrimSniper V.1.0.0 
+
+> **Note:** This repository is a custom rework of **Fh6-Sniper V1.0.1 **.
+
+## Main Changes
+* **Added multi-resolution compatibility** (tested and working: 720p, 1080p, 2k & 4k)
+* **Added HDR compatibility** (if using HDR, you must enable the "moving backgrounds" option both in the bot's config and in-game)
+* **Translated the entire tool into Italian**
+* **Customized the UI** (work in progress)
+
+## Future Changes
+* Fix incompatibility between HDR & moving backgrounds
+* Add compatibility for custom resolutions and non-standard aspect ratios
+* Add compatibility for the Italian in-game language
+* Fix minor, non-functional bugs
+* Complete the UI customization
+
+---
+
 # FH6 Auction House Sniper
 
 ## Automated auction house sniper for Forza Horizon 6
