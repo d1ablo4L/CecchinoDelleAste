@@ -1,23 +1,22 @@
-# TrimSniper V.1.0.0
+# Il Cecchino delle aste - V.1.0.1
 
 > **Nota:** Questa repository è una rielaborazione personalizzata di [Fh6-Sniper V1.0.1](https://github.com/FrostyIsBored/FH6-Auction-House-Sniper/tree/v1.0.1).
 
 ## Modifiche principali
 * **Aggiunta compatibilità multi-risoluzione** (testate e funzionanti: 720p, 1080p, 2K e 4K)
-* **Aggiunta compatibilità HDR** (se si usa l'HDR, è necessario abilitare l'opzione "sfondi animati" sia nella configurazione del bot che nel gioco)
+* **Aggiunta compatibilità HDR**
+* **Aggiunta compatibilità per la lingua italiana nel gioco**
 * **Traduzione completa dello strumento in italiano**
-* **Interfaccia utente personalizzata** (lavori in corso)
+* **Interfaccia utente personalizzata**
 
 ## Modifiche future
-* Correggere l'incompatibilità tra HDR e sfondi animati
 * Aggiungere compatibilità per risoluzioni personalizzate e rapporti d'aspetto non standard
-* Aggiungere compatibilità per la lingua italiana nel gioco
 * Correggere bug minori non funzionali
 * Completare la personalizzazione dell'interfaccia utente
 
 ---
 
-# FH6 Auction House Sniper
+# Il Cecchino delle aste di FH6
 
 ## Sniper automatico per la Casa d'aste di Forza Horizon 6
 
@@ -46,8 +45,7 @@ Monitora la Casa d'aste per l'auto impostata, la acquista immediatamente non app
 - Risoluzione 4k/2k/1080p/720p – NO HDR - Schermo intero, frame rate sbloccato - dimensione HUD 100%
 - Preset grafico Molto basso
 - Sfondo animato (Accesivibilità visive) **Disattivato**
-- HDR (OPZIONALE)(AUMENTA IMPUT LAG) - Sfondo animato **Attivato** - in config.json "moving_bg" **true**
-- Lingua del gioco impostata su **English (US)**
+- Lingua del gioco impostata su **Italiano**
 - Connessione Ethernet cablata fortemente consigliata
 
 <img width="1386" height="763" alt="image-4" src="https://github.com/user-attachments/assets/fd2bf173-259f-4458-938b-2267144ce3ab" />
@@ -125,7 +123,6 @@ Il bot è pronto all'uso senza modifiche. Se vuoi personalizzarlo, apri **config
 - **collect_after_buyout** – imposta su `false` se preferisci riscuotere le auto manualmente
 - **notify_sound** / **notify_toast** – disattiva il segnale sonoro o la notifica toast alla vittoria
 - **buyout_select_delay_ms** – millisecondi aggiuntivi tra la selezione di Acquisto immediato e la pressione di Invio. Imposta a `200` se il bot apre occasionalmente la finestra Fai un'offerta invece di Acquisto immediato (predefinito: 0)
-- **moving_background** – imposta su `false` se l'opzione sfondo animato di FH6 è **disattivata** (per HDR impostare: true)
 
 ---
 
