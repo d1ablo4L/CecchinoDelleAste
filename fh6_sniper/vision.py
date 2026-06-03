@@ -92,19 +92,23 @@ def _small(tmpl: np.ndarray) -> np.ndarray:
     return cached
 
 
-def load_templates(template_dir, moving_background: bool = True) -> dict:
+def load_templates(template_dir) -> dict:
     """Carica ogni template di rilevamento in scala di grigi.
     Lancia FileNotFoundError se un template obbligatorio manca.
+
+    Il tool funziona ESCLUSIVAMENTE con lo sfondo in movimento ("moving
+    background") OFF nel gioco: dove esiste una variante _bgoff si usa sempre
+    quella, e i template "background ON" corrispondenti vengono ignorati. Non
+    c'e' piu' alcun flag da controllare.
 
     Il matching avviene sempre su frame normalizzati a 1920×1080, quindi
     i template a 1080p funzionano per qualsiasi risoluzione di gioco.
     """
     out = {}
     for name in TEMPLATE_SCREENS:
-        is_bgoff = name.endswith("_bgoff.png")
-        if moving_background and is_bgoff:
-            continue
-        if not moving_background and _has_bgoff_variant(name):
+        # Esiste una variante _bgoff per questo template? Allora salta questo
+        # (versione background ON) e carica solo la _bgoff.
+        if _has_bgoff_variant(name):
             continue
         path = Path(template_dir) / name
         img = cv2.imread(str(path))
@@ -132,10 +136,19 @@ def _downscale(img: np.ndarray) -> np.ndarray:
                       interpolation=cv2.INTER_AREA)
 
 
+# Regioni di ricerca dei template. NON sono tutte centrate sullo schermo:
+# alcuni elementi (es. "Dettagli asta", messaggio "nessuna asta") vivono nel
+# PANNELLO DI DESTRA, centrati a ~x=1409, non a x=960. Cambiare lingua cambia
+# solo la *larghezza* del testo, non la posizione: quindi ogni regione conserva
+# il proprio centro (verificato su screenshot reale del gioco in italiano) e
+# l'unica modifica rispetto all'originale e' l'allargamento di no_auctions, il
+# cui template italiano (650 px, due righe) non entrava nella regione vecchia.
+# Verifiche su frame reale: auction_details -> match 0.86 (picco x969,y154);
+# ah_landing -> 0.95 (picco x72,y99).
 TEMPLATE_REGIONS = {
     "search.png":                (472, 223, 1448, 471),
-    "auction_details.png":       (889,  64, 1920, 294),
-    "no_auctions.png":           (1113, 434, 1706, 690),
+    "auction_details.png":       (889,  64, 1920, 294),   # banner pannello destro
+    "no_auctions.png":           (700, 410, 1780, 720),   # allargata: copre pannello e centro
     "auction_options.png":       (546, 276, 1374, 526),
     "player_options.png":        (580, 230, 1340, 486),
     "buy_out.png":               (520, 470, 1400, 620),
@@ -223,14 +236,25 @@ def is_confirm_highlighted(scene_bgr, region=CONFIRM_ROW) -> bool:
 # ── Rilevamento timbro SOLD ───────────────────────────────────────────────────
 SOLD_STAMP_REGION = (90, 185, 300, 295)
 
-# Approccio universale SDR/HDR: cerca pixel con alta saturazione E alta
-# luminosità (colore vivace). In SDR il timbro è giallo acceso (H≈28,
-# S≈255, V≈220). In HDR il tone-mapping può spostare H e abbassare S/V,
-# ma il timbro rimane comunque un colore saturo e luminoso rispetto allo
-# sfondo grigio-scuro della card. Non dipende dall'hue specifico.
-_SOLD_S_THRESH     = 55    # saturazione minima: esclude grigi e sfondo scuro
-_SOLD_V_THRESH     = 80    # luminosità minima: esclude aree in ombra
-_SOLD_PIXEL_COUNT  = 800   # pixel colorati+luminosi necessari per "SOLD"
+# Il timbro "VENDUTO!" e' una fascia LIME piena sopra la miniatura dell'auto.
+# NON basta cercare "colore vivace": la foto dell'auto (qualunque colore) e'
+# gia' vivace e generava falsi positivi (un'auto arancione disponibile dava
+# ~4600 pixel "vivaci" -> marcata venduta per errore). La discriminante e'
+# l'HUE LIME specifico del timbro: si filtra solo quella tinta.
+#
+# Misure su frame reali (1920x1080):
+#   - 4 auto arancioni DISPONIBILI -> 0 pixel lime in tutti gli slot
+#   - 1 auto VENDUTA               -> ~3000 pixel lime nello slot venduto
+# La selezione (bordo lime della card) e i badge timer ("1 minuto", lime) non
+# cadono dentro le regioni del timbro, quindi non interferiscono.
+#
+# Banda hue ampia (24-50) per tollerare lo spostamento di tinta in HDR; S e V
+# alti perche' il timbro e' un lime pieno e brillante, non un verde spento.
+_SOLD_H_LO         = 24    # hue minimo lime
+_SOLD_H_HI         = 50    # hue massimo lime
+_SOLD_S_THRESH     = 100   # saturazione minima: lime pieno, non colori smorti
+_SOLD_V_THRESH     = 100   # luminosità minima: timbro brillante
+_SOLD_PIXEL_COUNT  = 700   # pixel lime necessari per "VENDUTO" (margine ampio)
 
 SOLD_STAMP_REGIONS = (
     SOLD_STAMP_REGION,
@@ -240,42 +264,38 @@ SOLD_STAMP_REGIONS = (
 )
 
 
-def is_card_sold(scene_bgr, region=SOLD_STAMP_REGION) -> bool:
-    """True se la prima card mostra il timbro SOLD.
+def _lime_mask(hsv: np.ndarray) -> np.ndarray:
+    """Maschera dei pixel lime del timbro VENDUTO."""
+    return cv2.inRange(
+        hsv,
+        np.array([_SOLD_H_LO, _SOLD_S_THRESH, _SOLD_V_THRESH], np.uint8),
+        np.array([_SOLD_H_HI, 255, 255], np.uint8))
 
-    Rileva qualsiasi colore vivace (S alta + V alta) nella regione del timbro.
-    Funziona in SDR (giallo acceso) e HDR (giallo/arancio tone-mappato),
-    indipendentemente da risoluzione e impostazioni display.
+
+def is_card_sold(scene_bgr, region=SOLD_STAMP_REGION) -> bool:
+    """True se la card mostra il timbro VENDUTO (fascia lime sulla miniatura).
+
+    Filtra l'hue lime specifico del timbro: la foto dell'auto (qualunque
+    colore) non lo attiva. Funziona in SDR e HDR (banda hue ampia).
     """
     x1, y1, x2, y2 = region
     crop = scene_bgr[y1:y2, x1:x2]
     if crop.size == 0:
         return False
-    hsv  = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(
-        hsv,
-        np.array([0, _SOLD_S_THRESH, _SOLD_V_THRESH], np.uint8),
-        np.array([179, 255, 255], np.uint8))
-    return int(cv2.countNonZero(mask)) > _SOLD_PIXEL_COUNT
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    return int(cv2.countNonZero(_lime_mask(hsv))) > _SOLD_PIXEL_COUNT
 
 
 def sold_slots(scene_bgr) -> tuple:
-    """Flag SOLD per ognuno dei quattro slot risultato.
-    Universale SDR/HDR: vedi is_card_sold.
-    """
-    hsv  = cv2.cvtColor(scene_bgr, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(
-        hsv,
-        np.array([0, _SOLD_S_THRESH, _SOLD_V_THRESH], np.uint8),
-        np.array([179, 255, 255], np.uint8))
+    """Flag VENDUTO per ognuno dei quattro slot risultato (timbro lime)."""
+    hsv = cv2.cvtColor(scene_bgr, cv2.COLOR_BGR2HSV)
+    mask = _lime_mask(hsv)
     return tuple(int(cv2.countNonZero(mask[y1:y2, x1:x2])) > _SOLD_PIXEL_COUNT
                  for (x1, y1, x2, y2) in SOLD_STAMP_REGIONS)
 
 
 def first_buyable_slot(scene_bgr) -> int:
-    """Primo slot non-SOLD (indice 1), o 0 se tutti e quattro sono venduti.
-    Universale SDR/HDR.
-    """
+    """Primo slot non venduto (indice 1-4), o 0 se tutti e quattro sono venduti."""
     for i, sold in enumerate(sold_slots(scene_bgr), start=1):
         if not sold:
             return i

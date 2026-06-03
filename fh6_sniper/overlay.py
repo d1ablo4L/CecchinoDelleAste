@@ -1,4 +1,4 @@
-"""Overlay di stato sempre in primo piano — tema ROG TrimSniper."""
+"""Overlay di stato sempre in primo piano — tema ROG CecchinoDelleAste."""
 from __future__ import annotations
 import ctypes
 import time
@@ -19,12 +19,17 @@ _ROG      = "#FF0028"   # rosso ROG — colore accento primario
 _ROG_DIM  = "#c40020"   # ROG leggermente smorzato (hover stop)
 _TEXT     = "#f4f4f6"   # testo bianco
 _DIM      = "#7a3535"   # testo dimmed rosso-grigio
-_FAINT    = "#3a0e0e"   # testo molto tenue (etichette card)
+_FAINT    = "#7a3535"   # etichette card / firma — stesso rosso dei keybind (_DIM)
 _AMBER    = "#f0a83c"   # stato in pausa
 _RED_STAT = "#ff4060"   # contatore FALLITI
 _STOP     = "#b80000"   # pulsante ferma
 _STOP_HV  = "#8f0000"   # hover ferma
 _START_HV = "#cc001e"   # hover avvia
+
+# Colori bandiera italiana per il titolo "CecchinoDelleAste"
+_IT_GREEN = "#1aa64b"   # verde
+_IT_WHITE = "#ffffff"   # bianco
+_IT_RED   = "#e23744"   # rosso
 
 # Parole nei messaggi di stato che portano in stato "fermo"
 _STOPPED_WORDS = ("inattivo", "fermato", "auto-stop", "perso",
@@ -36,7 +41,7 @@ class Overlay:
 
     def __init__(self, hide_from_capture: bool = True):
         self.root = tk.Tk()
-        self.root.title("TrimSniper V1.0.0")
+        self.root.title("CecchinoDelleAste - V.1.0.1")
         self.root.attributes("-topmost", True)
         self.root.overrideredirect(True)
         # Il background del root è il rosso ROG → crea un sottile bordo colorato
@@ -58,7 +63,10 @@ class Overlay:
         # +1 px per il bordo ROG su ogni lato
         w = 344 + 2
         h = self.root.winfo_reqheight()
-        self.root.geometry(f"{w}x{h}+24+24")
+        # Angolo in alto a DESTRA: x = larghezza schermo - larghezza overlay - margine
+        margin = 24
+        x = self.root.winfo_screenwidth() - w - margin
+        self.root.geometry(f"{w}x{h}+{x}+{margin}")
         if hide_from_capture:
             self._exclude_from_capture()
         self._tick()
@@ -96,12 +104,19 @@ class Overlay:
                              font=("Segoe UI", 9))
         self._dot.pack(side="left")
 
-        # Titolo principale
+        # Titolo principale — "CecchinoDelleAste" in stile bandiera italiana:
+        # primo terzo verde, secondo bianco, terzo rosso. Solo il titolo è
+        # tricolore; la versione resta in bianco.
         title_frame = tk.Frame(header, bg=_BG_HDR)
         title_frame.pack(side="left", padx=(6, 0))
-        tk.Label(title_frame, text="TrimSniper", bg=_BG_HDR, fg=_ROG,
-                 font=("Segoe UI", 11, "bold")).pack(side="left")
-        tk.Label(title_frame, text=" V1.0.0", bg=_BG_HDR, fg=_TEXT,
+        for chunk, color in (("Cecchi", _IT_GREEN),
+                             ("noDel",  _IT_WHITE),
+                             ("leAste", _IT_RED)):
+            tk.Label(title_frame, text=chunk, bg=_BG_HDR, fg=color,
+                     font=("Segoe UI", 11, "bold"),
+                     bd=0, padx=0, pady=0, highlightthickness=0
+                     ).pack(side="left")
+        tk.Label(title_frame, text=" - V.1.0.1", bg=_BG_HDR, fg=_TEXT,
                  font=("Segoe UI", 10)).pack(side="left")
 
         close = tk.Label(header, text="✕", bg=_BG_HDR, fg=_DIM,
@@ -163,7 +178,7 @@ class Overlay:
         card = tk.Frame(parent, bg=_CARD)
         card.pack(fill="x", padx=16, pady=(12, 0))
         cells = (
-            ("ACQUISTATI", self._bought_var,   _ROG),
+            ("ACQUISTATI", self._bought_var,   _IT_GREEN),
             ("RICERCHE",   self._searches_var,  _TEXT),
             ("FALLITI",    self._fails_var,      _RED_STAT),
             ("ATTIVO",     self._time_var,       _TEXT),
