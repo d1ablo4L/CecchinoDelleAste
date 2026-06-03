@@ -55,7 +55,7 @@ Monitora la Casa d'aste per l'auto impostata, la acquista immediatamente non app
 
 # Download
 
-Scarica l'ultima versione del **CecchinoDelleAste.zip** dalla [pagina Releases](https://github.com/d1ablo4L/TrimSniper/releases) ed estraila in qualsiasi cartella del tuo PC.
+Scarica l'ultima versione del **CecchinoDelleAste.zip** dalla [pagina Releases](https://github.com/d1ablo4L/CecchinoDelleAste/releases) ed estraila in qualsiasi cartella del tuo PC.
 
 ---
 
@@ -84,7 +84,7 @@ Torna indietro in modo che la schermata mostri la **visualizzazione configurazio
 
 ## Passo 3 – Avvia lo sniper
 
-Fai doppio clic su **TrimSniper.exe**. Apparirà una piccola overlay nell'angolo in alto a sinistra dello schermo.
+Fai doppio clic su **CecchinoDelleAste.exe**. Apparirà una piccola overlay nell'angolo in alto a sinistra dello schermo.
 
 Torna su FH6, premi **F8** o **Avvia**, e lascialo girare.
 
@@ -154,4 +154,4 @@ Il bot è pronto all'uso senza modifiche. Se vuoi personalizzarlo, apri **config
 
 **Il bot si perde in una schermata e rimane bloccato** – riavvia FH6 e il bot. Assicurati che il preset grafico sia **Molto basso** e la risoluzione **1920 x 1080**.
 
-**Quando segnali problemi relativi al bot** – includi il file Sniper.log in modo che possa analizzarlo. Se il problema persiste, [apri una segnalazione](https://github.com/d1ablo4L/TrimSniper/issues) o contattami su Discord "d1ablo4l".
+**Quando segnali problemi relativi al bot** – includi il file Sniper.log in modo che possa analizzarlo. Se il problema persiste, [apri una segnalazione](https://github.com/d1ablo4L/CecchinoDelleAste/issues) o contattami su Discord "d1ablo4l".
