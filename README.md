@@ -44,7 +44,7 @@ Monitora la Casa d'aste per l'auto impostata, la acquista immediatamente non app
 - Forza Horizon 6 su PC
 - Risoluzione 4k/2k/1080p/720p - Schermo intero, frame rate sbloccato - dimensione HUD 100%
 - Preset grafico Molto basso
-- Sfondo animato (Accesivibilità visive) **Disattivato**
+- Sfondo animato (Accesibilità visive) **Disattivato**
 - Lingua del gioco impostata su **Italiano**
 - Connessione Ethernet cablata fortemente consigliata
 
