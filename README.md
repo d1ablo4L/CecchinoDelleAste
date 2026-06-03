@@ -42,7 +42,7 @@ Monitora la Casa d'aste per l'auto impostata, la acquista immediatamente non app
 
 - Windows 10 o 11
 - Forza Horizon 6 su PC
-- Risoluzione 4k/2k/1080p/720p – NO HDR - Schermo intero, frame rate sbloccato - dimensione HUD 100%
+- Risoluzione 4k/2k/1080p/720p - Schermo intero, frame rate sbloccato - dimensione HUD 100%
 - Preset grafico Molto basso
 - Sfondo animato (Accesivibilità visive) **Disattivato**
 - Lingua del gioco impostata su **Italiano**
@@ -55,7 +55,7 @@ Monitora la Casa d'aste per l'auto impostata, la acquista immediatamente non app
 
 # Download
 
-Scarica l'ultima versione di **TrimSniper.zip** dalla [pagina Releases](https://github.com/d1ablo4L/TrimSniper/releases) ed estraila in qualsiasi cartella del tuo PC.
+Scarica l'ultima versione del **CecchinoDelleAste.zip** dalla [pagina Releases](https://github.com/d1ablo4L/TrimSniper/releases) ed estraila in qualsiasi cartella del tuo PC.
 
 ---
 
