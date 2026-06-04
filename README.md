@@ -84,7 +84,7 @@ Torna indietro in modo che la schermata mostri la **visualizzazione configurazio
 
 ## Passo 3 – Avvia lo sniper
 
-Fai doppio clic su **CecchinoDelleAste.exe**. Apparirà una piccola overlay nell'angolo in alto a sinistra dello schermo.
+Fai doppio clic su **CecchinoDelleAste.exe**. Apparirà una piccola overlay nell'angolo in alto a destra dello schermo.
 
 Torna su FH6, premi **F8** o **Avvia**, e lascialo girare.
 
