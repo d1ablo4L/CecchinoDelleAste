@@ -38,31 +38,6 @@ TEMPLATE_SCREENS: dict[str, Screen] = {
 }
 
 
-# ── Utility HSV (mantenuta per compatibilità) ─────────────────────────────────
-def lime_mask(bgr: np.ndarray, lower, upper) -> np.ndarray:
-    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-    return cv2.inRange(hsv, np.array(lower, np.uint8), np.array(upper, np.uint8))
-
-
-def largest_lime_bbox(bgr, lower, upper):
-    """Bounding box della più grande regione lime a forma di banner, o None."""
-    mask = lime_mask(bgr, lower, upper)
-    contours, _ = cv2.findContours(
-        mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best, best_area = None, 0.0
-    for c in contours:
-        area = cv2.contourArea(c)
-        if area < 2000:
-            continue
-        x, y, w, h = cv2.boundingRect(c)
-        if h <= 0 or w / h < 4.0:
-            continue
-        if area > best_area:
-            best_area = area
-            best = (x, y, w, h)
-    return best
-
-
 # ── Template matching ─────────────────────────────────────────────────────────
 def _gray(img: np.ndarray) -> np.ndarray:
     if img.ndim == 2:

@@ -1,4 +1,10 @@
 """Configuration dataclass e load/save su JSON.
+
+NOTA: il file `config.json` (JSON) non puo' contenere commenti. La spiegazione
+di ogni voce e di come regolarla per andare piu' veloce o piu' lento sta qui
+sotto, come commento sopra ogni campo. Per cambiare un valore in pratica si
+modifica `config.json` (accanto all'exe) e si riavvia il tool: NON serve
+ricompilare per le sole modifiche di configurazione.
 """
 from __future__ import annotations
 import json
@@ -16,11 +22,6 @@ class Config:
     # sulla velocita'.
     window_title: str = "Forza Horizon 6"
 
-    # Risoluzione canonica interna a cui ogni frame viene normalizzato. I
-    # template sono tarati su 1080p: NON cambiare, vale per qualsiasi
-    # risoluzione di gioco (la cattura viene comunque riportata a 1920x1080).
-    resolution: tuple = (1920, 1080)
-
     # ── Riconoscimento schermate ─────────────────────────────────────────
     # Soglia di somiglianza (0.0-1.0) per riconoscere una schermata dai
     # template. Piu' ALTA = piu' severa (meno errori, ma rischia di non
@@ -30,12 +31,6 @@ class Config:
     # - se riconosce la schermata SBAGLIATA: alza a 0.83-0.85
     # Non e' una leva di velocita' diretta.
     match_threshold: float = 0.80
-
-    # Intervallo colore lime (HSV) usato SOLO da una utility secondaria; il
-    # rilevamento di Conferma e del timbro VENDUTO non lo usa piu'. Lasciare
-    # invariato.
-    lime_hsv_lower: tuple = (32, 110, 110)
-    lime_hsv_upper: tuple = (52, 255, 255)
 
     # ── Timing degli input (LEVE DI VELOCITA') ───────────────────────────
     # [min, max] millisecondi di tenuta di ogni tasto, scelti a caso

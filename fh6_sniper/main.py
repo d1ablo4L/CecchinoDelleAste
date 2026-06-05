@@ -5,7 +5,7 @@ import sys
 import threading
 from pynput import keyboard
 from . import capture, notifier, paths, vision
-from .config import load_config
+from .config import load_config, save_config
 from .overlay import Overlay
 from .sniper import GameIO, Sniper
 
@@ -31,10 +31,13 @@ def _setup_logging():
 def main() -> None:
     log_path = _setup_logging()
     logging.getLogger("fh6").info("FH6 Sniper avvio (log: %s)", log_path)
-    cfg = load_config(paths.app_dir() / "config.json")
+    config_path = paths.app_dir() / "config.json"
+    cfg = load_config(config_path)
     templates = vision.load_templates(paths.app_dir() / cfg.template_dir)
     io = GameIO(cfg, templates)
     overlay = Overlay(
+        cfg=cfg,
+        on_save=lambda c: save_config(c, config_path),
         hide_from_capture=not getattr(cfg, "overlay_capturable", False))
 
     state = {
@@ -81,14 +84,27 @@ def main() -> None:
                     overlay.set_status("Crash: vedi sniper.log")
                 except Exception:
                     pass
+            finally:
+                # Fine reale del run (auto-stop, stop manuale o crash):
+                # libera lo stato e riporta l'overlay su AVVIA, così si può
+                # sempre ripartire con un clic.
+                if state.get("thread") is thread:
+                    state["thread"] = None
+                    state["sniper"] = None
+                try:
+                    overlay.set_running(False)
+                except Exception:
+                    pass
 
         thread = threading.Thread(target=_run_safe, daemon=True)
         state["sniper"], state["thread"] = sniper, thread
+        overlay.set_running(True)                   # pulsante -> FERMA (prima dello start)
         thread.start()
 
     def stop():
-        if state["sniper"]:
-            state["sniper"].request_stop()
+        s = state.get("sniper")
+        if s:
+            s.request_stop()
 
     def toggle():
         if state["thread"] and state["thread"].is_alive():
