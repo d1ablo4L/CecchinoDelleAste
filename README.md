@@ -1,18 +1,19 @@
-# Il Cecchino delle aste - V.1.0.1
+# Il Cecchino delle aste - V.1.0.2
 
 > **Nota:** Questa repository è una rielaborazione personalizzata di [Fh6-Sniper V1.0.1](https://github.com/FrostyIsBored/FH6-Auction-House-Sniper/tree/v1.0.1).
 
 ## Modifiche principali
-* **Aggiunta compatibilità multi-risoluzione** (testate e funzionanti: 720p, 1080p, 2K e 4K)
-* **Aggiunta compatibilità HDR**
-* **Aggiunta compatibilità per la lingua italiana nel gioco**
-* **Traduzione completa dello strumento in italiano**
-* **Interfaccia utente personalizzata**
+* **Aggiunta compatibilità multi-risoluzione.** (testate e funzionanti: 720p, 1080p, 2K e 4K)
+* **Aggiunta compatibilità HDR.**
+* **Aggiunta compatibilità per la lingua italiana nel gioco.**
+* **Aggiunta Pagina Impostazioni nel overlay.**
+* **Traduzione completa dello strumento in italiano.**
+* **Interfaccia utente personalizzata.**
+* **Codice pulito e semplificato per una migliore ottimizzazione e manutenzione.**
+* **Risolti bugs minori.**
 
 ## Modifiche future
 * Aggiungere compatibilità per risoluzioni personalizzate e rapporti d'aspetto non standard
-* Correggere bug minori non funzionali
-* Completare la personalizzazione dell'interfaccia utente
 
 ---
 
@@ -110,19 +111,8 @@ Windows SmartScreen mostrerà un avviso perché l'exe non è firmato digitalment
 | **F8** | Avvia / ferma |
 | **F9** | Stop di emergenza |
 | Pulsante **STOP** | Come F8 |
+| **⚙** sull'overlay | Impostazioni |
 | **✕** sull'overlay | Chiudi ed esci |
-
----
-
-# Impostazioni aggiuntive 
-
-Il bot è pronto all'uso senza modifiche. Se vuoi personalizzarlo, apri **config.json** (creato nella stessa cartella dell'exe al primo avvio):
-
-- **max_cars** – stop automatico dopo questo numero di vittorie (predefinito: 1)
-- **max_minutes** – stop automatico dopo questi minuti (predefinito: 180)
-- **collect_after_buyout** – imposta su `false` se preferisci riscuotere le auto manualmente
-- **notify_sound** / **notify_toast** – disattiva il segnale sonoro o la notifica toast alla vittoria
-- **buyout_select_delay_ms** – millisecondi aggiuntivi tra la selezione di Acquisto immediato e la pressione di Invio. Imposta a `200` se il bot apre occasionalmente la finestra Fai un'offerta invece di Acquisto immediato (predefinito: 0)
 
 ---
 
