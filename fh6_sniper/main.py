@@ -1,4 +1,3 @@
-"""Punto di ingresso: collega config, template, sniper, overlay e hotkey."""
 from __future__ import annotations
 import logging
 import sys
@@ -21,7 +20,7 @@ def _setup_logging():
     root.setLevel(logging.INFO)
     root.handlers.clear()
     root.addHandler(file_handler)
-    if sys.stderr is not None:          # nessuna console con exe --windowed
+    if sys.stderr is not None:         
         console = logging.StreamHandler()
         console.setFormatter(fmt)
         root.addHandler(console)
@@ -33,24 +32,22 @@ def main() -> None:
     logging.getLogger("fh6").info("FH6 Sniper avvio (log: %s)", log_path)
     config_path = paths.app_dir() / "config.json"
     cfg = load_config(config_path)
-    templates = vision.load_templates(paths.app_dir() / cfg.template_dir)
+    templates = vision.load_templates(paths.app_dir() / "templates")
     io = GameIO(cfg, templates)
     overlay = Overlay(
         cfg=cfg,
         on_save=lambda c: save_config(c, config_path),
         hide_from_capture=not getattr(cfg, "overlay_capturable", False))
 
+    overlay.attach_logging(logging.getLogger("fh6"))
+
     state = {
         "sniper": None,
         "thread": None,
-        # totali cumulativi lato display — si accumulano tra cicli stop/start
-        # così ACQUISTATI / RICERCHE / FALLITI non si azzerano ad ogni avvio.
         "display": {"searches": 0, "bought": 0, "fails": 0},
-        # ultimi valori visti dallo Sniper corrente — usati per calcolare
-        # delta (le nuove istanze Sniper ripartono i contatori interni da 0).
         "last_bot_stats": (0, 0, 0),
     }
-    purchase_log = paths.app_dir() / cfg.log_path
+    purchase_log = paths.app_dir() / "logs" / "purchases.csv"
 
     def on_purchase(loop_seconds, total):
         notifier.log_purchase(purchase_log, "acquistato", loop_seconds, total)
@@ -69,7 +66,7 @@ def main() -> None:
         if state["thread"] and state["thread"].is_alive():
             return
         capture.focus_window(cfg.window_title)
-        state["last_bot_stats"] = (0, 0, 0)        # nuovo Sniper, delta azzerati
+        state["last_bot_stats"] = (0, 0, 0)     
         sniper = Sniper(io, cfg, on_purchase=on_purchase,
                         on_status=overlay.set_status,
                         on_stats=on_stats)
@@ -85,9 +82,6 @@ def main() -> None:
                 except Exception:
                     pass
             finally:
-                # Fine reale del run (auto-stop, stop manuale o crash):
-                # libera lo stato e riporta l'overlay su AVVIA, così si può
-                # sempre ripartire con un clic.
                 if state.get("thread") is thread:
                     state["thread"] = None
                     state["sniper"] = None
@@ -98,7 +92,7 @@ def main() -> None:
 
         thread = threading.Thread(target=_run_safe, daemon=True)
         state["sniper"], state["thread"] = sniper, thread
-        overlay.set_running(True)                   # pulsante -> FERMA (prima dello start)
+        overlay.set_running(True)
         thread.start()
 
     def stop():

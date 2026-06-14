@@ -1,11 +1,3 @@
-"""Configuration dataclass e load/save su JSON.
-
-NOTA: il file `config.json` (JSON) non puo' contenere commenti. La spiegazione
-di ogni voce e di come regolarla per andare piu' veloce o piu' lento sta qui
-sotto, come commento sopra ogni campo. Per cambiare un valore in pratica si
-modifica `config.json` (accanto all'exe) e si riavvia il tool: NON serve
-ricompilare per le sole modifiche di configurazione.
-"""
 from __future__ import annotations
 import json
 from dataclasses import dataclass, asdict
@@ -16,108 +8,34 @@ DEFAULT_CONFIG_PATH = Path("config.json")
 
 @dataclass
 class Config:
-    # ── Gioco / cattura ──────────────────────────────────────────────────
-    # Titolo ESATTO della finestra del gioco da catturare e portare in primo
-    # piano. Deve combaciare con la barra del titolo di FH6. Non influisce
-    # sulla velocita'.
     window_title: str = "Forza Horizon 6"
-
-    # ── Riconoscimento schermate ─────────────────────────────────────────
-    # Soglia di somiglianza (0.0-1.0) per riconoscere una schermata dai
-    # template. Piu' ALTA = piu' severa (meno errori, ma rischia di non
-    # riconoscere una schermata); piu' BASSA = riconosce piu' facilmente ma
-    # puo' confondere schermate simili. 0.80 e' il buon compromesso.
-    # - se una schermata NON viene riconosciuta: prova ad abbassare a 0.75
-    # - se riconosce la schermata SBAGLIATA: alza a 0.83-0.85
-    # Non e' una leva di velocita' diretta.
     match_threshold: float = 0.80
-
-    # ── Timing degli input (LEVE DI VELOCITA') ───────────────────────────
-    # [min, max] millisecondi di tenuta di ogni tasto, scelti a caso
-    # nell'intervallo (per non sembrare meccanici).
-    # PIU' BASSO = piu' veloce. Troppo basso e il gioco puo' "perdere"
-    # pressioni: per velocizzare prova [10, 20]; se saltano tasti, rialza.
-    key_hold_ms: tuple = (20, 45)
-
-    # [min, max] millisecondi di pausa DOPO ogni tasto, prima del successivo.
-    # PIU' BASSO = navigazione piu' rapida. Per velocizzare prova [10, 20];
-    # se il gioco perde input, rialza.
-    between_keys_ms: tuple = (20, 55)
-
-    # [min, max] millisecondi tra un controllo dello schermo e l'altro mentre
-    # il bot ASPETTA che una schermata cambi. E' la leva di velocita' PIU'
-    # importante: piu' BASSO = reagisce prima all'apparire dei risultati e
-    # all'esito del buyout (cruciale per lo sniping).
-    # Per velocizzare: [15, 30]. Troppo basso = piu' uso di CPU.
-    poll_interval_ms: tuple = (40, 90)
-
-    # Ritardo extra (ms) prima di confermare il buyout. Tenere 0 per la
-    # massima velocita'; aumentare SOLO se il gioco non registra in tempo la
-    # selezione dell'acquisto.
+    key_hold_ms: tuple = (10, 20)
+    between_keys_ms: tuple = (10, 20)
+    poll_interval_ms: tuple = (15, 30)
     buyout_select_delay_ms: int = 0
-
-    # ── Timeout (reti di sicurezza, in secondi) ──────────────────────────
-    # Questi NON velocizzano il caso normale (il bot esce dall'attesa appena
-    # vede la schermata giusta): servono solo a non restare bloccato per
-    # sempre se qualcosa non arriva.
-    # Secondi massimi di attesa dei risultati dopo una ricerca prima di
-    # rinunciare e riprovare. Abbassarlo = rinuncia prima a ricerche
-    # lente/vuote e ricomincia.
+    buyout_confirm_window_s: float = 0.35
+    buyout_open_wait_s: float = 2.5
+    collect_claim_wait_s: float = 1.0
+    collect_unknown_wait_s: float = 1.0
     timeout_results_s: float = 12.0
-
-    # Secondi massimi di attesa dell'esito del buyout (riuscito/fallito) dopo
-    # l'avvio dell'acquisto. Lasciare ampio.
     timeout_outcome_s: float = 25.0
-
-    # Secondi massimi per completare il ritiro dell'auto dopo l'acquisto.
-    timeout_claim_s: float = 20.0
-
-    # Timeout generico per altre attese minori.
-    timeout_generic_s: float = 10.0
-
-    # Pausa tra un ciclo completo e il successivo. PIU' BASSO = ricerche
-    # ripetute piu' frequenti, quindi piu' tentativi di sniping al minuto.
-    # Per velocizzare: 0.02 o 0.0. A 0 massimizza i tentativi ma carica di
-    # piu' CPU e gioco.
-    loop_pace_s: float = 0.15
-
-    # ── Stop automatico ──────────────────────────────────────────────────
-    # Se True, il bot si ferma da solo al raggiungimento di max_cars OPPURE
-    # di max_minutes. Non influisce sulla velocita'.
+    timeout_claim_s: float = 30.0
+    timeout_generic_s: float = 20.0
+    loop_pace_s: float = 0.10
     auto_stop_enabled: bool = True
-
-    # Numero di auto da comprare prima di fermarsi (se auto_stop_enabled).
     max_cars: int = 1
-
-    # Minuti massimi di esecuzione prima dello stop automatico.
     max_minutes: float = 180.0
-
-    # ── Comportamento ────────────────────────────────────────────────────
-    # Se True, dopo ogni acquisto esegue anche il RITIRO dell'auto. Metterlo
-    # a False fa risparmiare tempo dopo ogni acquisto (dovrai ritirare le
-    # auto a mano dai messaggi), utile se vuoi accaparrarne il piu' possibile
-    # in fretta.
     collect_after_buyout: bool = True
-
-    # Beep di Windows a ogni acquisto riuscito.
     notify_sound: bool = True
-
-    # Notifica "toast" di Windows a ogni acquisto riuscito.
     notify_toast: bool = True
-
-    # ── Percorsi ─────────────────────────────────────────────────────────
-    # File CSV con lo storico degli acquisti.
-    log_path: str = "logs/purchases.csv"
-
-    # Cartella che contiene i template (immagini) per il riconoscimento delle
-    # schermate.
-    template_dir: str = "templates"
-
-    # ── Scorciatoie globali (formato pynput) ─────────────────────────────
-    # Tasto per avviare/fermare il bot. Es. "<f8>".
+    overlay_capturable: bool = False
+    search_jitter_enabled: bool = True
+    search_jitter_steps: int = 1
+    maxbid_rows_above_confirm: int = 2
+    jitter_maxbid: bool = False
+    jitter_maxbuyout: bool = False
     hotkey_start_stop: str = "<f8>"
-
-    # Tasto di emergenza per fermare subito il bot. Es. "<f9>".
     hotkey_panic: str = "<f9>"
 
 

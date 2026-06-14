@@ -1,7 +1,7 @@
-"""Screen capture and window-focus helpers — universale per qualsiasi risoluzione."""
 from __future__ import annotations
 import ctypes
 import logging
+import threading
 import time
 import numpy as np
 import cv2
@@ -11,9 +11,6 @@ import win32gui
 _log = logging.getLogger("fh6.capture")
 
 # ── DPI awareness ────────────────────────────────────────────────────────────
-# Obbligatorio per ottenere pixel fisici su monitor 2K/4K con Windows scaling.
-# SetProcessDpiAwareness(2) = PROCESS_PER_MONITOR_DPI_AWARE (Win 8.1+).
-# Fallback a SetProcessDPIAware() per Windows 7/8.
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
@@ -22,50 +19,41 @@ except Exception:
     except Exception:
         pass
 
-# Risoluzione canonica interna. Tutti i frame vengono normalizzati a questa
-# dimensione indipendentemente dalla risoluzione nativa del gioco.
-# Template, regioni e soglie sono calibrati su questo valore.
 CANON = (1920, 1080)
-_TARGET_RATIO = 16.0 / 9.0   # rapporto d'aspetto di riferimento
+_TARGET_RATIO = 16.0 / 9.0
 
+# ── Stato modulo ──────────────────────────────────────────────────────────────
 _camera = None
 _camera_unavailable = False
+_dxgi_got_frame = False         
+_mss = None
 _hwnd_cache: dict = {}
+_capture_failing = False
+_latest = None                 
+_frame_id = 0
+_worker_thread = None
+_stop_worker = False
 
 
 # ── Crop aspect ratio ─────────────────────────────────────────────────────────
 def _crop_to_16_9(frame: np.ndarray) -> np.ndarray:
-    """Ritaglia il frame al rapporto 16:9 prendendo il centro dell'immagine.
-
-    Gestisce qualsiasi aspect ratio in ingresso:
-    - Più largo di 16:9 (21:9, 32:9, ultrawide…): ritaglia i lati
-    - Più stretto di 16:9 (4:3, 16:10, 5:4…): ritaglia in altezza
-    - Già 16:9 (con tolleranza 2 %): restituisce una view senza allocazioni
-
-    Il crop dal centro garantisce che la UI del gioco (sempre centrata) sia
-    inclusa, indipendentemente dall'aspect ratio del monitor.
-    """
     h, w = frame.shape[:2]
     if h == 0:
         return frame
     actual_ratio = w / h
-    if abs(actual_ratio - _TARGET_RATIO) < 0.02:   # già ≈16:9
+    if abs(actual_ratio - _TARGET_RATIO) < 0.02:
         return frame
     if actual_ratio > _TARGET_RATIO:
-        # Più largo: ritaglia la larghezza, mantieni tutta l'altezza
         new_w = int(round(h * _TARGET_RATIO))
         x0 = (w - new_w) // 2
         return frame[:, x0:x0 + new_w]
-    else:
-        # Più alto: ritaglia l'altezza, mantieni tutta la larghezza
-        new_h = int(round(w / _TARGET_RATIO))
-        y0 = (h - new_h) // 2
-        return frame[y0:y0 + new_h, :]
+    new_h = int(round(w / _TARGET_RATIO))
+    y0 = (h - new_h) // 2
+    return frame[y0:y0 + new_h, :]
 
 
 # ── Window helpers ────────────────────────────────────────────────────────────
 def find_window(title: str) -> int:
-    """Restituisce l'hwnd di una finestra visibile con quel titolo, o 0."""
     cached = _hwnd_cache.get(title)
     if cached and win32gui.IsWindow(cached):
         return cached
@@ -84,11 +72,6 @@ def find_window(title: str) -> int:
 
 
 def client_rect(hwnd: int):
-    """Restituisce (left, top, width, height) dell'area client in pixel fisici.
-
-    Con DPI awareness attiva i valori sono pixel fisici, quindi corretti
-    su qualsiasi risoluzione e impostazione di scaling di Windows.
-    """
     cl, ct, cr, cb = win32gui.GetClientRect(hwnd)
     width, height = cr - cl, cb - ct
     sx, sy = win32gui.ClientToScreen(hwnd, (cl, ct))
@@ -99,6 +82,7 @@ def using_dxgi() -> bool:
     return _camera is not None and not _camera_unavailable
 
 
+# ── Backend di cattura ──────────────────────────────────────────────────────
 def _grab_dxgi(region):
     global _camera, _camera_unavailable
     if _camera_unavailable:
@@ -107,83 +91,139 @@ def _grab_dxgi(region):
         import bettercam
         if _camera is None:
             _camera = bettercam.create(output_idx=0, output_color="BGR")
-        for _ in range(5):
-            frame = _camera.grab(region=region) if region else _camera.grab()
-            if frame is not None:
-                return np.ascontiguousarray(frame)
-            time.sleep(0.008)
-        return None
+        frame = _camera.grab(region=region) if region else _camera.grab()
+        return np.ascontiguousarray(frame) if frame is not None else None
     except Exception:
         _camera_unavailable = True
         return None
 
 
 def _grab_mss(region):
+    global _mss
     import mss
-    with mss.MSS() as sct:
-        if region:
-            area = {"left": region[0], "top": region[1],
-                    "width": region[2] - region[0],
-                    "height": region[3] - region[1]}
-        else:
-            area = sct.monitors[1]
-        shot = sct.grab(area)
-        return np.ascontiguousarray(np.array(shot)[:, :, :3])
+    if _mss is None:
+        _mss = mss.mss()
+    sct = _mss
+    if region:
+        area = {"left": region[0], "top": region[1],
+                "width": region[2] - region[0],
+                "height": region[3] - region[1]}
+    else:
+        area = sct.monitors[1]
+    shot = sct.grab(area)
+    return np.ascontiguousarray(np.array(shot)[:, :, :3])
 
 
-_capture_failing = False
+def _region_for(window_title):
+    if not window_title:
+        return None
+    hwnd = find_window(window_title)
+    if not hwnd:
+        return None
+    x, y, w, h = client_rect(hwnd)
+    if w > 0 and h > 0:
+        return (x, y, x + w, y + h)
+    return None
 
 
-def grab_screen(window_title: str | None = None) -> np.ndarray:
-    """Cattura e restituisce un frame BGR 1920×1080 normalizzato.
+def _produce_frame(window_title) -> bool:
+    global _latest, _frame_id, _capture_failing, _dxgi_got_frame
+    region = _region_for(window_title)
 
-    Pipeline universale:
-      1. Cattura la regione fisica della finestra (DPI-aware → corretta a
-         qualsiasi risoluzione: 720p, 1080p, 2K, 4K).
-      2. Ritaglia al rapporto 16:9 dal centro (_crop_to_16_9) → gestisce
-         ultrawide 21:9, 32:9, monitor 4:3, 16:10, ecc.
-      3. Ridimensiona a CANON 1920×1080 con INTER_AREA (qualità ottimale
-         per il downscale) → template e regioni sempre validi.
+    raw = _grab_dxgi(region)
+    if raw is not None:
+        _dxgi_got_frame = True
+    elif _dxgi_got_frame and _latest is not None:
+        return False
 
-    Il risultato è sempre 1920×1080 BGR indipendentemente da risoluzione
-    nativa, aspect ratio del monitor e backend di cattura (DXGI o mss).
-    """
-    global _capture_failing
-    region = None
-    if window_title:
-        hwnd = find_window(window_title)
-        if hwnd:
-            x, y, w, h = client_rect(hwnd)
-            if w > 0 and h > 0:
-                region = (x, y, x + w, y + h)
-
-    frame = _grab_dxgi(region)
-    if frame is None:
+    if raw is None:
         try:
-            frame = _grab_mss(region)
+            raw = _grab_mss(region)
         except Exception as e:
             if not _capture_failing:
                 _log.warning("cattura fallita: %s", e)
                 _capture_failing = True
-            frame = None
-
-    if frame is None:
-        return np.zeros((CANON[1], CANON[0], 3), dtype=np.uint8)
+            return False
 
     if _capture_failing:
         _log.info("cattura ripristinata")
         _capture_failing = False
 
-    # Step 2: porta a 16:9 prima di ridimensionare
-    frame = _crop_to_16_9(frame)
+    raw = _crop_to_16_9(raw)
+    if (raw.shape[1], raw.shape[0]) != CANON:
+        raw = cv2.resize(raw, CANON, interpolation=cv2.INTER_AREA)
 
-    # Step 3: normalizza a CANON
-    if (frame.shape[1], frame.shape[0]) != CANON:
-        frame = cv2.resize(frame, CANON, interpolation=cv2.INTER_AREA)
-
-    return frame
+    _frame_id += 1
+    _latest = (raw, _frame_id)
+    return True
 
 
+# ── Worker di cattura in background ───────────────────────────────────────────
+def _worker_alive() -> bool:
+    return _worker_thread is not None and _worker_thread.is_alive()
+
+
+def _worker_run(window_title):
+    _log.info("capture worker avviato")
+    while not _stop_worker:
+        try:
+            produced = _produce_frame(window_title)
+        except Exception:
+            _log.exception("errore nel capture worker")
+            time.sleep(0.05)
+            continue
+        if not produced:
+            time.sleep(0.003)
+    _log.info("capture worker fermato")
+
+
+def start_capture(window_title: str) -> None:
+    global _worker_thread, _stop_worker
+    if _worker_alive():
+        return
+    _stop_worker = False
+    _worker_thread = threading.Thread(
+        target=_worker_run, args=(window_title,),
+        name="fh6-capture", daemon=True)
+    _worker_thread.start()
+
+
+def stop_capture() -> None:
+    global _stop_worker
+    _stop_worker = True
+
+
+# ── API pubblica di lettura ───────────────────────────────────────────────────
+def frame_id() -> int:
+    snap = _latest
+    return snap[1] if snap is not None else 0
+
+
+def latest_frame(window_title: str | None = None):
+    if window_title and not _worker_alive():
+        start_capture(window_title)
+
+    snap = _latest
+    if snap is None and _worker_alive():
+        for _ in range(120):       
+            time.sleep(0.005)
+            snap = _latest
+            if snap is not None:
+                break
+    if snap is None and not _worker_alive():
+        _produce_frame(window_title)
+        snap = _latest
+
+    if snap is not None:
+        return snap
+    return (np.zeros((CANON[1], CANON[0], 3), dtype=np.uint8), 0)
+
+
+def grab_screen(window_title: str | None = None) -> np.ndarray:
+    return latest_frame(window_title)[0]
+
+
+# ── Focus / foreground ────────────────────────────────────────────────────────
 def foreground_title() -> str:
     return win32gui.GetWindowText(win32gui.GetForegroundWindow())
 
@@ -193,7 +233,6 @@ def is_game_focused(expected_title: str, title_getter=foreground_title) -> bool:
 
 
 def focus_window(title: str) -> bool:
-    """Porta la finestra indicata in primo piano. True se riuscito."""
     hwnd = find_window(title)
     if not hwnd:
         return False

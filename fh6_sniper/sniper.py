@@ -1,4 +1,3 @@
-"""Macchina a stati dello sniper e wrapper GameIO usato dai test."""
 from __future__ import annotations
 import logging
 import random
@@ -14,28 +13,41 @@ def _names(screens) -> str:
 
 
 class GameIO:
-    """Connessione tra cattura + visione + input. Sostituibile per i test.
-
-    Le funzioni di rilevamento colore (confirm_highlighted, card_sold,
-    first_buyable_slot) usano il nuovo sistema universale di vision.py
-    basato su luminosità e saturazione relativa: non richiedono parametri
-    HSV specifici per SDR o HDR, quindi GameIO non ha più bisogno di
-    distinguere le due modalità.
-    """
 
     def __init__(self, cfg, templates):
         self.cfg = cfg
         self.templates = templates
         self._last_screen = None
+        self._memo_fid = None
+        self._memo: dict = {}
+
+    def _read(self, key, fn):
+        frame, fid = capture.latest_frame(self.cfg.window_title)
+        if fid != self._memo_fid:
+            self._memo_fid = fid
+            self._memo = {}
+        if key not in self._memo:
+            self._memo[key] = fn(frame)
+        return self._memo[key]
+
+    def await_new_frame(self, timeout: float = 0.15) -> bool:
+        start = capture.frame_id()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if capture.frame_id() != start:
+                return True
+            time.sleep(0.002)
+        return False
 
     def screen(self, targets=None) -> Screen:
-        """Identifica lo schermo corrente."""
         if (targets is not None and self._last_screen is not None
                 and self._last_screen != Screen.UNKNOWN):
             targets = targets | {self._last_screen}
-        frame = capture.grab_screen(self.cfg.window_title)
-        result = vision.identify_screen(
-            frame, self.templates, self.cfg.match_threshold, targets=targets)
+        key = ("screen", frozenset(targets) if targets is not None else None)
+        result = self._read(
+            key,
+            lambda f: vision.identify_screen(
+                f, self.templates, self.cfg.match_threshold, targets=targets))
         if result != self._last_screen:
             log.info("schermo -> %s", result.name)
             self._last_screen = result
@@ -45,28 +57,23 @@ class GameIO:
         return capture.is_game_focused(self.cfg.window_title)
 
     def confirm_highlighted(self) -> bool:
-        """True se il pulsante Conferma è evidenziato (SDR, HDR, qualsiasi display)."""
-        frame = capture.grab_screen(self.cfg.window_title)
-        return vision.is_confirm_highlighted(frame)
+        return self._read("confirm", vision.is_confirm_highlighted)
 
     def card_sold(self) -> bool:
-        """True se la prima card mostra il timbro SOLD (SDR, HDR, qualsiasi display)."""
-        frame = capture.grab_screen(self.cfg.window_title)
-        return vision.is_card_sold(frame)
+        return self._read("card_sold", vision.is_card_sold)
 
     def first_buyable_slot(self) -> int:
-        """Primo slot acquistabile, 0 se tutti venduti (SDR, HDR, qualsiasi display)."""
-        frame = capture.grab_screen(self.cfg.window_title)
-        return vision.first_buyable_slot(frame)
+        return self._read("slot", vision.first_buyable_slot)
 
     def press(self, name: str, times: int = 1) -> None:
         log.info("premi %s%s", name, f" x{times}" if times > 1 else "")
         actions.tap_key(name, times,
                         self.cfg.key_hold_ms, self.cfg.between_keys_ms)
+        self._memo = {}
+        self._memo_fid = None
 
 
 class Sniper:
-    """Gestisce il loop della casa d'aste tramite un GameIO."""
 
     def __init__(self, io, cfg, clock=time.monotonic, sleeper=time.sleep,
                  on_purchase=None, on_status=None, on_stats=None):
@@ -82,6 +89,7 @@ class Sniper:
         self.failed_buyouts = 0
         self.started_at     = None
         self._stop = False
+        self._jitter_up = True
 
     def request_stop(self) -> None:
         self._stop = True
@@ -204,6 +212,46 @@ class Sniper:
             self._press("down")
         return self.io.confirm_highlighted()
 
+    def _jitter_max_bid(self) -> None:
+        cfg = self.cfg
+        if not getattr(cfg, "search_jitter_enabled", True):
+            return
+        if getattr(cfg, "jitter_maxbid", True):
+            rows = 2
+        elif getattr(cfg, "jitter_maxbuyout", False):
+            rows = 1
+        else:
+            rows = 0
+        if rows <= 0:
+            return
+        steps = max(1, int(getattr(cfg, "search_jitter_steps", 1)))
+        direction = "right" if self._jitter_up else "left"
+        sign = "+" if self._jitter_up else "-"
+        try:
+            self._status(f"Aggiorno offerta ({sign}{steps})")
+            for _ in range(rows):
+                if self._stop:
+                    return
+                self._press("up")
+                self.sleeper(0.02)
+            if self._stop:
+                return
+            self._press(direction, steps)
+            self._jitter_up = not self._jitter_up
+            self.sleeper(0.02)
+            for _ in range(rows):
+                if self._stop:
+                    return
+                self._press("down")
+                self.sleeper(0.02)
+        except Exception:
+            log.exception(
+                "jitter saltato: tasti 'up'/'left'/'right' non disponibili")
+            try:
+                cfg.search_jitter_enabled = False
+            except Exception:
+                pass
+
     def _recover(self) -> str:
         unknown_streak = 0
         s = self.io.screen()
@@ -213,6 +261,16 @@ class Sniper:
             if s in (Screen.SEARCH_CONFIG, Screen.AH_LANDING):
                 log.info("recupero: raggiunto %s", s.name)
                 return "recovered"
+            if s == Screen.BUYOUT_PROGRESS:
+                self.sleeper(0.3)
+                s = self.io.screen()
+                continue
+            if s in (Screen.BUYOUT_SUCCESS, Screen.CLAIM_CAR,
+                     Screen.AUCTION_OPTIONS):
+                self._press("enter")
+                unknown_streak = 0
+                s = self._await_settle(prev=s)
+                continue
             if s == Screen.UNKNOWN:
                 unknown_streak += 1
                 if unknown_streak >= 4:
@@ -265,39 +323,50 @@ class Sniper:
             self.sleeper(0.6)
         return "no_cars"
 
-    def _collect(self) -> None:
+    def _collect(self) -> bool:
         self._status("Ritiro dell'auto in corso")
-        if self._press_until("y", Screen.RESULTS_HAS_CARS,
-                             {Screen.AUCTION_OPTIONS}) is None:
-            return
-        if self._press_until("enter", Screen.AUCTION_OPTIONS,
-                             {Screen.CLAIM_CAR}) is None:
-            return
+        if self.wait_for({Screen.AUCTION_OPTIONS, Screen.CLAIM_CAR},
+                         getattr(self.cfg, "buyout_open_wait_s", 2.5)) is None:
+            return False
+        if self.io.screen() != Screen.CLAIM_CAR:
+            if self._press_until("enter", Screen.AUCTION_OPTIONS,
+                                 {Screen.CLAIM_CAR}) is None:
+                return False
         deadline = self.clock() + self.cfg.timeout_claim_s
+        claimed = False
         while self.clock() < deadline:
             if self._stop:
-                return
+                return claimed
             s = self.io.screen()
             if s == Screen.CLAIM_CAR:
                 self._press("enter")
-                self.sleeper(1.0)
+                claimed = True
+                self.sleeper(getattr(self.cfg, "collect_claim_wait_s", 0.2))
             elif s == Screen.UNKNOWN:
-                self.sleeper(0.3)
+                self.sleeper(getattr(self.cfg, "collect_unknown_wait_s", 0.1))
             else:
-                return
+                return claimed
+        return claimed
 
     def run_once(self) -> str:
         log.info("--- run_once ---")
         cfg = self.cfg
+        t_start = self.clock()
         if not self._goto_search_config():
             return "recover_failed"
 
         self._status("Ricerca in corso")
         if not self._navigate_to_confirm():
             return self._recover()
+        self._jitter_max_bid()
+        if self._stop:
+            return self._recover()
+        t_query = self.clock()
+        log.info("tempo: apertura ricerca %.0f ms", (t_query - t_start) * 1000)
         result = self._press_until(
             "enter", Screen.SEARCH_CONFIG,
             {Screen.RESULTS_HAS_CARS, Screen.RESULTS_EMPTY})
+        log.info("tempo: query gioco %.0f ms", (self.clock() - t_query) * 1000)
         if result is not Screen.RESULTS_HAS_CARS:
             self._back_to_landing(known=result)
             return "no_cars"
@@ -309,6 +378,7 @@ class Sniper:
             return "no_cars"
 
         self._status("Auto trovata, acquisto immediato")
+        t_buy = self.clock()
         for _ in range(slot - 1):
             self._press("down")
 
@@ -329,12 +399,14 @@ class Sniper:
         if cfg.buyout_select_delay_ms:
             self.sleeper(cfg.buyout_select_delay_ms / 1000.0)
         self._press("enter")
-        seen = self.wait_for({Screen.BUY_OUT, Screen.PLAYER_OPTIONS}, 2.5)
+        seen = self.wait_for({Screen.BUY_OUT, Screen.PLAYER_OPTIONS},
+                              getattr(cfg, "buyout_open_wait_s", 2.5))
         if seen == Screen.PLAYER_OPTIONS:
             return self._escape_player_options()
         if seen is None:
             return self._recover()
 
+        interval = getattr(cfg, "buyout_confirm_window_s", 0.35)
         outcome = None
         for _ in range(4):
             if self._stop:
@@ -342,7 +414,8 @@ class Sniper:
             self._press("enter")
             seen = self.wait_for(
                 {Screen.BUYOUT_PROGRESS,
-                 Screen.BUYOUT_SUCCESS, Screen.BUYOUT_FAILED}, 0.7)
+                 Screen.BUYOUT_SUCCESS, Screen.BUYOUT_FAILED},
+                interval)
             if seen in (Screen.BUYOUT_SUCCESS, Screen.BUYOUT_FAILED):
                 outcome = seen
                 break
@@ -352,8 +425,19 @@ class Sniper:
                     cfg.timeout_outcome_s)
                 break
         if outcome is None:
+            late = self.wait_for(
+                {Screen.BUYOUT_PROGRESS, Screen.BUYOUT_SUCCESS,
+                 Screen.BUYOUT_FAILED}, cfg.timeout_outcome_s)
+            if late == Screen.BUYOUT_PROGRESS:
+                outcome = self.wait_for(
+                    {Screen.BUYOUT_SUCCESS, Screen.BUYOUT_FAILED},
+                    cfg.timeout_outcome_s)
+            elif late in (Screen.BUYOUT_SUCCESS, Screen.BUYOUT_FAILED):
+                outcome = late
+        if outcome is None:
             return self._recover()
 
+        log.info("tempo: buyout %.0f ms", (self.clock() - t_buy) * 1000)
         self._press("enter")
 
         if outcome == Screen.BUYOUT_FAILED:
@@ -361,7 +445,17 @@ class Sniper:
             return "failed"
 
         if cfg.collect_after_buyout:
-            self._collect()
+            t_coll = self.clock()
+            _claimable = {Screen.AUCTION_OPTIONS, Screen.CLAIM_CAR,
+                          Screen.BUYOUT_SUCCESS, Screen.UNKNOWN}
+            for _attempt in range(3):
+                if self._stop:
+                    break
+                if self._collect():
+                    break
+                if self.io.screen() not in _claimable:
+                    break
+            log.info("tempo: ritiro %.0f ms", (self.clock() - t_coll) * 1000)
         self._back_to_landing()
         return "bought"
 

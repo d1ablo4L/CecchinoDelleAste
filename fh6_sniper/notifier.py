@@ -1,13 +1,12 @@
-"""Log CSV degli acquisti e notifiche sonore/toast."""
 from __future__ import annotations
 import csv
 import datetime as dt
+import threading
 from pathlib import Path
 
 
 def log_purchase(log_path, outcome: str, loop_seconds: float,
                  total: int) -> None:
-    """Aggiunge una riga al CSV degli acquisti. Scrive l'intestazione se nuovo."""
     path = Path(log_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     is_new = not path.exists()
@@ -23,17 +22,19 @@ def log_purchase(log_path, outcome: str, loop_seconds: float,
 
 
 def notify_success(car_count: int, sound: bool, toast: bool) -> None:
-    """Beep + toast Windows dopo un acquisto riuscito."""
-    if sound:
-        try:
-            import winsound
-            winsound.MessageBeep(winsound.MB_ICONASTERISK)
-        except Exception:
-            pass
-    if toast:
-        try:
-            from win11toast import toast as show_toast
-            show_toast("FH6 Sniper",
-                       f"Auto acquistata ({car_count} questa sessione)")
-        except Exception:
-            pass
+    def _run() -> None:
+        if sound:
+            try:
+                import winsound
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            except Exception:
+                pass
+        if toast:
+            try:
+                from win11toast import toast as show_toast
+                show_toast("FH6 Sniper",
+                           f"Auto acquistata ({car_count} questa sessione)")
+            except Exception:
+                pass
+
+    threading.Thread(target=_run, name="fh6-notify", daemon=True).start()

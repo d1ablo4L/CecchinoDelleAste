@@ -1,1 +1,1 @@
-"""FH6 Auction House Sniper."""
+"""CecchinoDelleAste V.2.0.0."""
