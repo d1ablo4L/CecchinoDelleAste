@@ -1,6 +1,13 @@
-# Il Cecchino delle aste - V.1.0.2
+# Il Cecchino delle aste - V.2.0.0
 
 > **Nota:** Questa repository è una rielaborazione personalizzata di [Fh6-Sniper V1.0.1](https://github.com/FrostyIsBored/FH6-Auction-House-Sniper/tree/v1.0.1).
+
+## 🚀 Changelog V.2:
+* **Nuove Funzionalità:** Aggiunte le funzioni di *Auto Refresh*, *Max Bid* e *Max Buyout* per massimizzare la ricerca delle auto ed evitare i tentativi di acquisto su aste già concluse.
+* **Performance:** Ottimizzate le prestazioni generali; il tool risulta nettamente più rapido e reattivo rispetto alla versione precedente.
+* **Codice e Personalizzazione:** Pulizia profonda del codice e rimozione dei limiti *hardcoded*. Ora è possibile scalare e personalizzare ogni parametro al 100% in base all'hardware e alla connessione dell'utente.
+* **Interfaccia Utente (UI):** Riprogettata da zero per offrire un'esperienza più ricca e completa rispetto alla V.1.
+* **Bugfix:** Applicati vari miglioramenti strutturali e risolti bug minori.
 
 ## Modifiche principali
 * **Aggiunta compatibilità multi-risoluzione.** (testate e funzionanti: 720p, 1080p, 2K e 4K)
